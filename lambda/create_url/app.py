@@ -43,12 +43,12 @@ def lambda_handler(event, context):
 
     #convert first 8 caracters of the hash to int and then to base 62
     number = int(hash_output[:8], 16)   
-    short_url = base62_encode(number )
+    short_id = base62_encode(number )
 
     #store in dynamodb
     table.put_item(
         Item = {
-            'short_url': short_url,
+            'short_id': short_id,
             'long_url': long_url,
             'created_at': int(time.time()),
             'click_count': 0
@@ -63,7 +63,7 @@ def lambda_handler(event, context):
             'Content-Type': 'application/json'
         },
         'body': json.dumps({
-            'short_url': f"https://{domain}/{short_id}"
+            'short_id': f"https://{domain}/{short_id}"
 
         })
 
