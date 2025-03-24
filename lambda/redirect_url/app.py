@@ -15,8 +15,8 @@ def lambda_handler(event, context):
         }
     
     #get the table name from the environment variable
-    table_name = os.environ['DYNAMPDB_TABLE']
-    table = dynamodb.table(table_name)
+    table_name = os.environ['DYNAMODB_TABLE']
+    table = dynamodb.Table(table_name)
 
     #look into dynamodb table
     response = table.get_item(
