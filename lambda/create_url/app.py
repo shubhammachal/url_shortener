@@ -21,7 +21,7 @@ def base62_encode(num, chars=CHARS):
         arr.append(rem)
         num //= 62
     return ''.join(arr[::-1])
-def create_lambda_handler(event, context):
+def lambda_handler(event, context):
     #parse the request body
     body = json.load(event.get('body'))
     #get the original long url

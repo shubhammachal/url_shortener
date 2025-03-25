@@ -6,7 +6,7 @@ import hashlib
 #intialize the dynamodb boto3 client
 dynamodb = boto3.resource('dynamodb')
 
-def redirect_lambda_handler(event, context):
+def lambda_handler(event, context):
     short_id = event.get('pathParameters').get('short_id')
     if not short_id:
         return{
