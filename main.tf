@@ -18,6 +18,7 @@ resource "aws_s3_bucket_website_configuration" "website" {
     bucket = aws_s3_bucket.website.id
     index_document {
         suffix = "index.html"
+        
     }
 
 }
@@ -51,9 +52,9 @@ resource "aws_s3_bucket_public_access_block" "website" {
 #uplod the website files to the bucket
 resource "aws_s3_object" "index_html" {
     bucket = aws_s3_bucket.website.id
-    key = "index.html"
+    key = "website/index.html"
     source = "${path.module}/website/index.html"
-    acl = "public-read"
+    content_type  = "text/html"
 
     #etag is used to track changes to the file
     etag = filemd5("${path.module}/website/index.html")
