@@ -25,6 +25,15 @@ lambda/redirect_url/s3transfer/
 lambda/redirect_url/six*/
 lambda/redirect_url/python_dateutil-2.9.0.post0.dist-info/
 lambda/redirect_url/urllib3/
+.DS_Store
+.terraform.lock.hcl
+.terraform/
+lambda/.DS_Store
+lambda/create_url/create_url.zip
+lambda/redirect_url/redirect_url.zip
+response.json
+terraform.tfstate
+terraform.tfstate.backup
 
 # Optional - Ignore environment files
 myvenv/
