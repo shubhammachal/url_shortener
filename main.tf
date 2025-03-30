@@ -1,15 +1,84 @@
 #provider
-provider "AWS" {    
+provider "aws" {    
     region = var.aws_region
   
 }
+
+#S3 bucket for storing the state file
+resource "aws_s3_bucket" "website" {
+    bucket = var.website_bucket_name
+    tags = {
+        name = "url-shortener-website"
+        Environment = var.environment
+    }  
+}
+
+#configure the bucket for website hosting
+resource "aws_s3_bucket_website_configuration" "website" {
+    bucket = aws_s3_bucket.website.id
+    index_document {
+        suffix = "index.html"
+    }
+
+}
+
+#S3 bucket policy to allow public access to the files
+resource "aws_s3_bucket_policy" "website_policy" {
+    bucket = aws_s3_bucket.website.id
+    policy = jsonencode({
+        Version = "2012-10-17"
+        Statement = [
+            {
+                Sid = "PublicReadGetObject"
+                Effect = "Allow"
+                Principal = "*"
+                Action = "s3:GetObject"
+                Resource = "arn:aws:s3:::${aws_s3_bucket.website.bucket}/*"
+            }
+        ]
+    })
+  
+}
+#configure the bucket to allow public read access
+resource "aws_s3_bucket_public_access_block" "website" {
+    bucket = aws_s3_bucket.website.id
+    block_public_acls = false
+    block_public_policy = false
+    ignore_public_acls = false
+    restrict_public_buckets = false 
+  
+}
+#uplod the website files to the bucket
+resource "aws_s3_object" "index_html" {
+    bucket = aws_s3_bucket.website.id
+    key = "index.html"
+    source = "${path.module}/website/index.html"
+    acl = "public-read"
+
+    #etag is used to track changes to the file
+    etag = filemd5("${path.module}/website/index.html")
+  
+}
+
+#CORS configuration for the bucket
+resource "aws_s3_bucket_cors_configuration" "website" {
+    bucket = aws_s3_bucket.website.id
+    cors_rule {
+        allowed_headers = ["*"]
+        allowed_methods = ["GET"]
+        allowed_origins = ["*"]
+        expose_headers = ["ETag"]
+        max_age_seconds = 3000
+    }
+}
+
 #dynamodb_table
 resource "aws_dynamodb_table" "url_shortener" {
     name           = var.dynamodb_table_name
     billing_mode   = "PAY_PER_REQUEST"
-    hash_key       = "id"
+    hash_key       = "short_id"
     attribute {
-        name = "id"
+        name = "short_id"
         type = "S"
     }
     tags = {
@@ -107,7 +176,7 @@ resource "aws_iam_policy_attachment" "lambda_logging" {
 #The following code block creates a ZIP archive of the lambda function create code
 data "archive_file" "create_lambda" {
   type        = "zip"
-  source_dir  = "${path.module}/lambda/create_url/app.py"
+  source_dir  = "${path.module}/lambda/create_url"
   output_path = "${path.module}/lambda/create_url/create_url.zip"
 }
 
@@ -117,7 +186,7 @@ resource "aws_lambda_function" "create" {
     filename = data.archive_file.create_lambda.output_path
     source_code_hash = data.archive_file.create_lambda.output_base64sha256
     handler = "app.lambda_handler"
-    runtime = "python3.8"
+    runtime = "python3.9"
     role = aws_iam_role.lambda_exec.arn
     timeout = 10
 
@@ -132,7 +201,7 @@ resource "aws_lambda_function" "create" {
 #now we will create a zip file for the lambda function that will be used to get the url
 data "archive_file" "redirect_lambda"{
     type = "zip"
-    source_dir = "${path.module}/lambda/redirect_url/app.py"
+    source_dir = "${path.module}/lambda/redirect_url"
     output_path = "${path.module}/lambda/redirect_url/redirect_url.zip"
 }
 #creating the lambda function that will be used to get the url
@@ -142,7 +211,7 @@ resource "aws_lambda_function" "redirect" {
     source_code_hash = data.archive_file.redirect_lambda.output_base64sha256
     handler = "app.lambda_handler"
     role = aws_iam_role.lambda_exec.arn
-    runtime = "python3.8"
+    runtime = "python3.9"
     timeout = 10
 
     environment {
@@ -153,6 +222,12 @@ resource "aws_lambda_function" "redirect" {
     }
 }
 
+#API Gateway
+resource "aws_apigatewayv2_api" "url_shortener" {
+  name = "url-shortener-api"
+  protocol_type = "HTTP"
+  
+}
 # API Gateway Stage
 #stage is a deployment env for api
 #way to manage diff stages of api
@@ -163,3 +238,49 @@ resource "aws_apigatewayv2_stage" "default" {
   auto_deploy = true
 }
 #create url integration
+resource "aws_apigatewayv2_integration" "create" {
+  api_id = aws_apigatewayv2_api.url_shortener.id
+  integration_type = "AWS_PROXY"
+  integration_method = "POST"
+  integration_uri = aws_lambda_function.create.invoke_arn 
+}
+
+#create url route
+resource "aws_apigatewayv2_route" "create" {
+  api_id = aws_apigatewayv2_api.url_shortener.id
+  route_key = "POST /create"
+  target = "integrations/${aws_apigatewayv2_integration.create.id}"
+}
+
+# Redirect URL integration
+resource "aws_apigatewayv2_integration" "redirect" {
+  api_id             = aws_apigatewayv2_api.url_shortener.id
+  integration_type   = "AWS_PROXY"
+  integration_method = "POST"
+  integration_uri    = aws_lambda_function.redirect.invoke_arn
+}
+#redirect url route
+resource "aws_apigatewayv2_route" "redirect" {
+  api_id = aws_apigatewayv2_api.url_shortener.id
+  route_key = "GET /{short_id}"
+  target = "integrations/${aws_apigatewayv2_integration.redirect.id}"
+}
+
+
+#lambda permissions for api gateway
+resource "aws_lambda_permission" "create" {
+  statement_id = "AllowAPIGatewayInvoke"
+  action = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.create.function_name
+  principal = "apigateway.amazonaws.com"
+  source_arn = "${aws_apigatewayv2_api.url_shortener.execution_arn}/*/*/create"
+  
+}
+#lambda permission for redirect
+resource "aws_lambda_permission" "redirect" {
+  statement_id = "AllowAPIGatewayInvoke"
+  action = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.redirect.function_name
+  principal = "apigateway.amazonaws.com"
+  source_arn = "${aws_apigatewayv2_api.url_shortener.execution_arn}/*/*/{short_id}"  # Fixed to match route
+}

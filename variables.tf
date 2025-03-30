@@ -17,6 +17,11 @@ variable "dynamodb_table_name" {
 variable "domain_name" {   
     description = "value of domain name"
     type = string
-    default     = "shorturl.com"
+    default     = "yourtinyurl.com"
+}
+variable "website_bucket_name" {
+  description = "name of the S3 bucket"
+  type = string
+  default     = "shubham-shortener-website"
   
 }
