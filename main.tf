@@ -13,51 +13,43 @@ resource "aws_s3_bucket" "website" {
     }  
 }
 
-#configure the bucket for website hosting
-resource "aws_s3_bucket_website_configuration" "website" {
-    bucket = aws_s3_bucket.website.id
-    index_document {
-        suffix = "index.html"
-        
-    }
-
-}
 
 #S3 bucket policy to allow public access to the files
 resource "aws_s3_bucket_policy" "website_policy" {
-    bucket = aws_s3_bucket.website.id
-    policy = jsonencode({
-        Version = "2012-10-17"
-        Statement = [
-            {
-                Sid = "PublicReadGetObject"
-                Effect = "Allow"
-                Principal = "*"
-                Action = "s3:GetObject"
-                Resource = "arn:aws:s3:::${aws_s3_bucket.website.bucket}/*"
-            }
-        ]
-    })
-  
+  bucket = aws_s3_bucket.website.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "CloudFrontAccess"
+        Effect    = "Allow"
+        Principal = {
+          AWS = "arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${aws_cloudfront_origin_access_identity.oai.id}"
+        }
+        Action    = "s3:GetObject"
+        Resource  = "${aws_s3_bucket.website.arn}/*"
+      }
+    ]
+  })
 }
+
 #configure the bucket to allow public read access
 resource "aws_s3_bucket_public_access_block" "website" {
-    bucket = aws_s3_bucket.website.id
-    block_public_acls = false
-    block_public_policy = false
-    ignore_public_acls = false
-    restrict_public_buckets = false 
-  
+  bucket = aws_s3_bucket.website.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
 }
 #uplod the website files to the bucket
 resource "aws_s3_object" "index_html" {
     bucket = aws_s3_bucket.website.id
-    key = "website/index.html"
-    source = "${path.module}/website/index.html"
+    key = "index.html"
+    source = "${path.module}/index.html"
     content_type  = "text/html"
 
     #etag is used to track changes to the file
-    etag = filemd5("${path.module}/website/index.html")
+    etag = filemd5("${path.module}/index.html")
   
 }
 
@@ -224,11 +216,18 @@ resource "aws_lambda_function" "redirect" {
 }
 
 #API Gateway
-resource "aws_apigatewayv2_api" "url_shortener" {
-  name = "url-shortener-api"
+  resource "aws_apigatewayv2_api" "url_shortener" {
+  name          = "url-shortener-api"
   protocol_type = "HTTP"
   
+  cors_configuration {
+  allow_origins = ["https://d2n223ccnelywl.cloudfront.net", "https://yourtinyurl.live"]
+  allow_methods = ["GET", "POST", "OPTIONS"]
+  allow_headers = ["Content-Type", "Authorization"]
+  max_age = 3000
 }
+}
+
 # API Gateway Stage
 #stage is a deployment env for api
 #way to manage diff stages of api
@@ -268,7 +267,7 @@ resource "aws_apigatewayv2_route" "redirect" {
 }
 
 
-#lambda permissions for api gateway
+#lambda permissions for create
 resource "aws_lambda_permission" "create" {
   statement_id = "AllowAPIGatewayInvoke"
   action = "lambda:InvokeFunction"
@@ -285,3 +284,98 @@ resource "aws_lambda_permission" "redirect" {
   principal = "apigateway.amazonaws.com"
   source_arn = "${aws_apigatewayv2_api.url_shortener.execution_arn}/*/*/{short_id}"  # Fixed to match route
 }
+
+# CloudFront Distribution for URL Shortener
+resource "aws_cloudfront_distribution" "url_shortener" {
+  enabled             = true
+  is_ipv6_enabled     = true
+  comment             = "URL Shortener Distribution"
+  default_root_object = "index.html"
+  
+  # Custom domain name
+  aliases = ["yourtinyurl.live"]
+  
+  # Origin for S3 website (for the main website content)
+  origin {
+    domain_name = aws_s3_bucket.website.bucket_regional_domain_name
+    origin_id   = "s3-website"
+    
+    s3_origin_config {
+      origin_access_identity = aws_cloudfront_origin_access_identity.oai.cloudfront_access_identity_path
+    }
+  }
+  
+  # Origin for API Gateway (for URL shortening and redirection)
+  origin {
+    domain_name = "${aws_apigatewayv2_api.url_shortener.id}.execute-api.${var.aws_region}.amazonaws.com"
+    origin_id   = "api-gateway"
+    
+    custom_origin_config {
+      http_port              = 80
+      https_port             = 443
+      origin_protocol_policy = "https-only"
+      origin_ssl_protocols   = ["TLSv1.2"]
+    }
+  }
+  
+# Default Cache Behavior for Root ("/") - Point to S3
+default_cache_behavior {
+  allowed_methods  = ["GET", "HEAD", "OPTIONS"]
+  cached_methods   = ["GET", "HEAD"]
+  target_origin_id = "s3-website"  # Ensure this origin exists
+
+  forwarded_values {
+    query_string = false
+    cookies {
+      forward = "none"
+    }
+  }
+
+  viewer_protocol_policy = "redirect-to-https"
+  min_ttl                 = 0
+  default_ttl             = 3600
+  max_ttl                 = 86400
+}
+
+# API Gateway Cache Behavior - For shortened URLs only
+ordered_cache_behavior {
+  path_pattern     = "*"  # Match any non-empty path (at least one character)
+  allowed_methods  = ["GET", "HEAD", "OPTIONS"]
+  cached_methods   = ["GET", "HEAD"]
+  target_origin_id = "api-gateway"
+
+  forwarded_values {
+    query_string = true
+    headers      = ["Origin", "Authorization"]
+    cookies {
+      forward = "none"
+    }
+  }
+
+  viewer_protocol_policy = "redirect-to-https"
+  min_ttl                = 0
+  default_ttl            = 0
+  max_ttl                = 0
+}
+  # SSL certificate for custom domain - using existing certificate
+  viewer_certificate {
+    acm_certificate_arn      = "arn:aws:acm:us-east-1:${data.aws_caller_identity.current.account_id}:certificate/268b4504-22b0-4b8e-b557-a847702ab951"
+    ssl_support_method       = "sni-only"
+    minimum_protocol_version = "TLSv1.2_2021"
+  }
+  
+  # Geo restrictions (none)
+  restrictions {
+    geo_restriction {
+      restriction_type = "none"
+    }
+  }
+}
+
+# CloudFront Origin Access Identity for S3
+resource "aws_cloudfront_origin_access_identity" "oai" {
+  comment = "OAI for URL Shortener website"
+}
+# Get current AWS account ID
+data "aws_caller_identity" "current" {}
+

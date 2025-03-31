@@ -23,17 +23,9 @@ output "url_pattern" {
   value       = "https://${var.domain_name}/{short_id}"
 }
 
-output "website_endpoint" {
-  description = "S3 website endpoint"
-  value       = aws_s3_bucket_website_configuration.website.website_endpoint
-}
 
 output "website_domain" {
   description = "S3 website domain"
   value       = aws_s3_bucket.website.bucket_regional_domain_name
 }
 
-output "website_url" {
-  description = "Website URL"
-  value       = "http://${aws_s3_bucket_website_configuration.website.website_endpoint}"
-}
