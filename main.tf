@@ -285,12 +285,11 @@ resource "aws_lambda_permission" "redirect" {
   source_arn = "${aws_apigatewayv2_api.url_shortener.execution_arn}/*/*/{short_id}"  # Fixed to match route
 }
 
-# CloudFront Distribution for URL Shortener
 resource "aws_cloudfront_distribution" "url_shortener" {
   enabled             = true
   is_ipv6_enabled     = true
   comment             = "URL Shortener Distribution"
-  default_root_object = "index.html"
+  default_root_object = "index.html"  # Critical setting
   
   # Custom domain name
   aliases = ["yourtinyurl.live"]
@@ -318,46 +317,50 @@ resource "aws_cloudfront_distribution" "url_shortener" {
     }
   }
   
-# Default Cache Behavior for Root ("/") - Point to S3
-default_cache_behavior {
-  allowed_methods  = ["GET", "HEAD", "OPTIONS"]
-  cached_methods   = ["GET", "HEAD"]
-  target_origin_id = "s3-website"  # Ensure this origin exists
-
-  forwarded_values {
-    query_string = false
-    cookies {
-      forward = "none"
+  # The default cache behavior MUST target S3 and handle the root path
+  default_cache_behavior {
+    allowed_methods  = ["GET", "HEAD", "OPTIONS"]
+    cached_methods   = ["GET", "HEAD"]
+    target_origin_id = "s3-website"
+    
+    forwarded_values {
+      query_string = false
+      cookies {
+        forward = "none"
+      }
     }
+    
+    viewer_protocol_policy = "redirect-to-https"
+    min_ttl                = 0
+    default_ttl            = 3600
+    max_ttl                = 86400
   }
-
-  viewer_protocol_policy = "redirect-to-https"
-  min_ttl                 = 0
-  default_ttl             = 3600
-  max_ttl                 = 86400
-}
-
-# API Gateway Cache Behavior - For shortened URLs only
-ordered_cache_behavior {
-  path_pattern     = "*"  # Match any non-empty path (at least one character)
-  allowed_methods  = ["GET", "HEAD", "OPTIONS"]
-  cached_methods   = ["GET", "HEAD"]
-  target_origin_id = "api-gateway"
-
-  forwarded_values {
-    query_string = true
-    headers      = ["Origin", "Authorization"]
-    cookies {
-      forward = "none"
+  
+  
+  
+  # IMPORTANT: Only route specific URL patterns to API Gateway, not all paths
+  # This specifically matches shortened URLs - not index.html, css, js, etc.
+  ordered_cache_behavior {
+    path_pattern     = "/*" # This is intentionally NOT matching root
+    allowed_methods  = ["GET", "HEAD", "OPTIONS"]
+    cached_methods   = ["GET", "HEAD"]
+    target_origin_id = "api-gateway"
+    
+    forwarded_values {
+      query_string = false
+      headers      = ["Origin"]
+      cookies {
+        forward = "none"
+      }
     }
+    
+    viewer_protocol_policy = "redirect-to-https"
+    min_ttl                = 0
+    default_ttl            = 0
+    max_ttl                = 0
   }
-
-  viewer_protocol_policy = "redirect-to-https"
-  min_ttl                = 0
-  default_ttl            = 0
-  max_ttl                = 0
-}
-  # SSL certificate for custom domain - using existing certificate
+  
+  # SSL certificate for custom domain
   viewer_certificate {
     acm_certificate_arn      = "arn:aws:acm:us-east-1:${data.aws_caller_identity.current.account_id}:certificate/268b4504-22b0-4b8e-b557-a847702ab951"
     ssl_support_method       = "sni-only"
@@ -371,7 +374,6 @@ ordered_cache_behavior {
     }
   }
 }
-
 # CloudFront Origin Access Identity for S3
 resource "aws_cloudfront_origin_access_identity" "oai" {
   comment = "OAI for URL Shortener website"
