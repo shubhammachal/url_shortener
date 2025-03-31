@@ -341,24 +341,44 @@ resource "aws_cloudfront_distribution" "url_shortener" {
   # IMPORTANT: Only route specific URL patterns to API Gateway, not all paths
   # This specifically matches shortened URLs - not index.html, css, js, etc.
   ordered_cache_behavior {
-    path_pattern     = "/*" # This is intentionally NOT matching root
-    allowed_methods  = ["GET", "HEAD", "OPTIONS"]
-    cached_methods   = ["GET", "HEAD"]
-    target_origin_id = "api-gateway"
-    
-    forwarded_values {
-      query_string = false
-      headers      = ["Origin"]
-      cookies {
-        forward = "none"
-      }
+  path_pattern     = "/?????"  # Matches exactly 5 characters
+  allowed_methods  = ["GET", "HEAD", "OPTIONS"]
+  cached_methods   = ["GET", "HEAD"]
+  target_origin_id = "api-gateway"
+  
+  forwarded_values {
+    query_string = false
+    headers      = ["Origin"]
+    cookies {
+      forward = "none"
     }
-    
-    viewer_protocol_policy = "redirect-to-https"
-    min_ttl                = 0
-    default_ttl            = 0
-    max_ttl                = 0
   }
+  
+  viewer_protocol_policy = "redirect-to-https"
+  min_ttl                = 0
+  default_ttl            = 0
+  max_ttl                = 0
+}
+
+ordered_cache_behavior {
+  path_pattern     = "/??????"  # Matches exactly 6 characters
+  allowed_methods  = ["GET", "HEAD", "OPTIONS"]
+  cached_methods   = ["GET", "HEAD"]
+  target_origin_id = "api-gateway"
+  
+  forwarded_values {
+    query_string = false
+    headers      = ["Origin"]
+    cookies {
+      forward = "none"
+    }
+  }
+  
+  viewer_protocol_policy = "redirect-to-https"
+  min_ttl                = 0
+  default_ttl            = 0
+  max_ttl                = 0
+}
   
   # SSL certificate for custom domain
   viewer_certificate {
