@@ -34,6 +34,7 @@ lambda/redirect_url/redirect_url.zip
 response.json
 terraform.tfstate
 terraform.tfstate.backup
+terraform.tfstate.1743370106.backup
 
 # Optional - Ignore environment files
 myvenv/
